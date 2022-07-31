@@ -1,4 +1,4 @@
-import { Component, System, World } from "../engine/ECS";
+import { Component, System, World, getQuery } from "../engine/ECS";
 import Engine from "../engine/Engine";
 import Shader from "../engine/Shader";
 
@@ -33,27 +33,22 @@ class Velocity extends Component {
 class Rectangle extends Component {
     public constructor(
         public color: [number, number, number, number] = [0.0, 0.0, 0.0, 1.0],
-        public buffer: WebGLBuffer,
-        public vao: WebGLVertexArrayObject,
+        public buffer: WebGLBuffer | null = null,
+        public vao: WebGLVertexArrayObject | null = null,
     ) {
         super();
     }
 }
 
 class RectangleMover extends System {
-    public componentsRequired: Set<Function> = new Set<Function>([Translation, Dimensionable, Velocity]);
+    public query = getQuery(Translation, Dimensionable, Velocity);
 
-    public update(entities: Set<number>): void {
+    public update(): void {
         const boundX = this.world.engine.gl.canvas.width;
         const boundY = this.world.engine.gl.canvas.height;
         const delta = this.world.engine.delta;
 
-        entities.forEach((id) => {
-            const entity = this.world.getComponents(id)!;
-            const translation = entity.get(Translation);
-            const dimensionable = entity.get(Dimensionable);
-            const velocity = entity.get(Velocity);
-
+        for (const [translation, dimensionable, velocity] of this.query.results) {
             translation.value[0] += velocity.value[0] * delta;
             translation.value[1] += velocity.value[1] * delta;
 
@@ -68,14 +63,14 @@ class RectangleMover extends System {
                 (translation.value[1] + dimensionable.height >= boundY && velocity.value[1] > 0)
             )
                 velocity.value[1] *= -1;
-        });
+        }
     }
 }
 
 class RectangleRenderer extends System {
-    public componentsRequired: Set<Function> = new Set<Function>([Translation, Dimensionable, Rectangle]);
+    public query = getQuery(Translation, Dimensionable, Rectangle);
 
-    public update(entities: Set<number>): void {
+    public update(): void {
         const gl = this.world.engine.gl;
         const shader = this.world.engine.getShader("rect");
         const shaderResolutionLocation = gl.getUniformLocation(shader!.program, "u_resolution")!;
@@ -91,12 +86,7 @@ class RectangleRenderer extends System {
         gl.uniform2f(shaderResolutionLocation, gl.canvas.width, gl.canvas.height);
 
         // Loop through all entities.
-        entities.forEach((id) => {
-            const entity = this.world.getComponents(id)!;
-            const translation = entity.get(Translation);
-            const dimensionable = entity.get(Dimensionable);
-            const rectangle = entity.get(Rectangle);
-
+        for (const [translation, dimensionable, rectangle] of this.query.results) {
             // Update instance uniforms
             gl.uniform4f(shaderColorLocation, rectangle.color[0], rectangle.color[1], rectangle.color[2], rectangle.color[3]);
 
@@ -118,7 +108,7 @@ class RectangleRenderer extends System {
             // Render element
             gl.bindVertexArray(rectangle.vao);
             gl.drawArrays(gl.TRIANGLES, 0, 6);
-        });
+        }
     }
 }
 

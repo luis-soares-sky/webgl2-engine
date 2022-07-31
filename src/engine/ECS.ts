@@ -18,6 +18,16 @@ export class ComponentContainer {
         return this.map.get(componentClass) as T;
     }
 
+    public getAll(componentClasses: Iterable<Function>): Component[] | null {
+        const result: Component[] = [];
+        for (const cls of componentClasses) {
+            const inst = this.map.get(cls);
+            if (!inst) return null;
+            result.push(inst);
+        }
+        return result;
+    }
+
     public has(componentClass: Function): boolean {
         return this.map.has(componentClass);
     }
@@ -34,16 +44,37 @@ export class ComponentContainer {
     }
 }
 
+export class EntityQuery<T extends Component[]> {
+    public constructor(
+        public readonly types: Set<Function>,
+        public readonly entities: Map<number, T> = new Map()
+    ) { }
+
+    public get results(): IterableIterator<T> {
+        return this.entities.values();
+    }
+}
+
+// Hack to map [typeof ComponentA, typeof ComponentB, ...] into [ComponentA, ComponentB, ...].
+// https://stackoverflow.com/questions/51672504/how-to-map-a-tuple-to-another-tuple-type-in-typescript-3-0
+// https://github.com/Microsoft/TypeScript/issues/25947
+// https://www.typescriptlang.org/docs/handbook/2/mapped-types.html
+type ExtractInstanceType<T> = T extends new (...args: any) => infer R ? R : never;
+type EntityQueryMap<T> = { [K in keyof T]: ExtractInstanceType<T[K]> };
+export function getQuery<T extends typeof Component[]>(...types: T) {
+    return new EntityQuery<EntityQueryMap<T>>(new Set(types));
+}
+
 export abstract class System {
     public world!: World;
-    public readonly abstract componentsRequired: Set<Function>;
+    public readonly abstract query: EntityQuery<Component[]>;
 
-    public abstract update(entities: Set<Entity>): void;
+    public abstract update(): void;
 }
 
 export class World {
     private entities = new Map<Entity, ComponentContainer>();
-    private systems = new Map<System, Set<Entity>>();
+    private systems = new Set<System>();
 
     private nextEntityID = 0;
     private entitiesToDestroy = new Array<Entity>();
@@ -88,7 +119,7 @@ export class World {
     // ============
 
     public addSystem(system: System): void {
-        if (system.componentsRequired.size == 0) {
+        if (system.query.types.size == 0) {
             // Systems should not have an empty Components list, or they'll run on every Entity.
             console.warn(`System ${system} not added, components list is empty.`);
             return;
@@ -96,19 +127,21 @@ export class World {
 
         system.world = this;
 
-        this.systems.set(system, new Set());
+        this.systems.add(system);
         for (const entity of this.entities.keys()) {
             this.checkEntitySystem(entity, system);
         }
     }
 
     public removeSystem(system: System): void {
+        system.query.types.clear();
+        system.query.entities.clear();
         this.systems.delete(system);
     }
 
     public update(): void {
-        for (const [system, entities] of this.systems.entries()) {
-            system.update(entities);
+        for (const system of this.systems) {
+            system.update();
         }
 
         while (this.entitiesToDestroy.length > 0) {
@@ -122,8 +155,9 @@ export class World {
 
     private destroyEntity(entity: Entity): void {
         this.entities.delete(entity);
-        for (let entities of this.systems.values()) {
-            entities.delete(entity);
+
+        for (const system of this.systems) {
+            system.query.entities.delete(entity);
         }
     }
 
@@ -134,13 +168,11 @@ export class World {
     }
 
     private checkEntitySystem(entity: Entity, system: System): void {
-        let have = this.entities.get(entity);
-        let need = system.componentsRequired;
-
-        if (have?.hasAll(need)) {
-            this.systems.get(system)?.add(entity);
+        let components = this.entities.get(entity)?.getAll(system.query.types);
+        if (components == null) {
+            system.query.entities.delete(entity);
         } else {
-            this.systems.get(system)?.delete(entity);
+            system.query.entities.set(entity, components);
         }
     }
 }
