@@ -1,4 +1,4 @@
-import { gameError } from "./Utils";
+import { gameError } from "../Utils";
 
 export default class Shader {
     public readonly program!: WebGLProgram;

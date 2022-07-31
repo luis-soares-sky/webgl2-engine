@@ -1,4 +1,4 @@
-import Shader from "./Shader";
+import Shader from "./program/Shader";
 
 export default class Engine {
     private shaders: Map<string, Shader> = new Map();

@@ -1,6 +1,6 @@
 import { Component, System, World, getQuery } from "../engine/ECS";
 import Engine from "../engine/Engine";
-import Shader from "../engine/Shader";
+import Shader from "../engine/program/Shader";
 
 import __SIMPLE_VS from "./rect.v.shader?raw";
 import __SIMPLE_FS from "./rect.f.shader?raw";
