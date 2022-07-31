@@ -1,39 +1,12 @@
+import Engine from "./Engine";
+
 // Inspired by https://maxwellforbes.com/posts/typescript-ecs-implementation/
 
-/**
- * An Entity is just an ID.
- * This is used to look up its associated Components.
- */
 export type Entity = number;
 
-/**
- * A Component is a bundle of state. Each instance of a Component is associated with a single Entity.
- * Components should have no API to fulfill.
- */
 export abstract class Component { }
 
-/**
- * This type is so functions like the ComponentContainer's `get()` will automatically tell TypeScript the type of the Component
- * returned. In other words, we can say `get(Translation)` and TypeScript will know to return an instance of `Translation`.
- */
 export type ComponentClass<T extends Component> = new (...args: any[]) => T;
-
-/**
- * This custom container is so that calling code can provide the Component instance when adding (e.g.,
- * `add(new Translation(...)`)), and provide the Component *class* otherwise (e.g., `get(Translation)`, `has(Translation)`,
- * `delete(Translation)`).
- *
- * We also use two different types to refer to the Component's class: * `Function` and `ComponentClass<T>`. We use `Function` in
- * most cases because it is simpler to write. We use `ComponentClass<T>` in the `get()` method, when we want TypeScript to know
- * the type of the instance that is returned. Just think of these both as referring to the same thing: the underlying class of the
- * Component.
- *
- * You might notice a footgun here: code that gets this object can
- * directly modify the Components inside (with add(...) and delete(...)).
- * This would screw up our ECS bookkeeping of mapping Systems to
- * Entities! We'll fix this later by only returning callers a view onto
- * the Components that can't change them.
- */
 export class ComponentContainer {
     private map = new Map<Function, Component>();
 
@@ -61,47 +34,21 @@ export class ComponentContainer {
     }
 }
 
-/**
- * A System cares about a set of Components. It will run on every Entity that corresponds to a set of Components.
- *
- * A System must specify two things:
- *
- * 1. The immutable set of Components it needs at compile time (its immutability is not enforced.) We use the type `Function`
- *    to refer to a Component's class; i.e. `Translation` (class) rather than `new Translation()` (instance).
- * 2. An `update()` method for what to do every frame (if anything).
- */
 export abstract class System {
-    /**
-     * Set of Component classes, all of which are required before the system is run on an entity.
-     */
+    public world!: World;
     public readonly abstract componentsRequired: Set<Function>;
 
-    /**
-     * `update()` is called on the System every frame.
-     */
-    public abstract update(delta: number, entities: Set<Entity>): void;
-
-    /**
-     * The World instance is given to all Systems. Systems contain most of the game code, so they need to be able to create,
-     * mutate, and destroy Entities and Components.
-     */
-    public world!: World;
+    public abstract update(entities: Set<Entity>): void;
 }
 
-/**
- * The World is the main ECS driver; it's the backbone of the engine that coordinates Entities, Components and Systems. You could
- * Have a single one for your game, or make a different one for every level, or have multiple for different purposes.
- */
 export class World {
-    // Main state
     private entities = new Map<Entity, ComponentContainer>();
     private systems = new Map<System, Set<Entity>>();
 
-    // Bookkeeping for entities
     private nextEntityID = 0;
     private entitiesToDestroy = new Array<Entity>();
 
-    public constructor(public readonly gl: WebGL2RenderingContext) { }
+    public constructor(public readonly engine: Engine) { }
 
     // =============
     // API: ENTITIES
@@ -159,9 +106,9 @@ export class World {
         this.systems.delete(system);
     }
 
-    public tick(delta: number): void {
+    public update(): void {
         for (const [system, entities] of this.systems.entries()) {
-            system.update(delta, entities);
+            system.update(entities);
         }
 
         while (this.entitiesToDestroy.length > 0) {

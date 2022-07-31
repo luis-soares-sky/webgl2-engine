@@ -1,7 +1,11 @@
-import { Component, System } from "../engine/ECS";
+import { Component, System, World } from "../engine/ECS";
+import Engine from "../engine/Engine";
 import Shader from "../engine/Shader";
 
-export class Translation extends Component {
+import __SIMPLE_VS from "./rect.v.shader?raw";
+import __SIMPLE_FS from "./rect.f.shader?raw";
+
+class Translation extends Component {
     public constructor(
         public value: [number, number] = [0.0, 0.0],
     ) {
@@ -9,7 +13,7 @@ export class Translation extends Component {
     }
 }
 
-export class Dimensionable extends Component {
+class Dimensionable extends Component {
     public constructor(
         public width: number = 0,
         public height: number = 0,
@@ -18,7 +22,7 @@ export class Dimensionable extends Component {
     }
 }
 
-export class Velocity extends Component {
+class Velocity extends Component {
     public constructor(
         public value: [number, number] = [0.0, 0.0],
     ) {
@@ -26,7 +30,7 @@ export class Velocity extends Component {
     }
 }
 
-export class Rectangle extends Component {
+class Rectangle extends Component {
     public constructor(
         public color: [number, number, number, number] = [0.0, 0.0, 0.0, 1.0],
         public buffer: WebGLBuffer,
@@ -36,12 +40,13 @@ export class Rectangle extends Component {
     }
 }
 
-export class RectangleMover extends System {
+class RectangleMover extends System {
     public componentsRequired: Set<Function> = new Set<Function>([Translation, Dimensionable, Velocity]);
 
-    public update(delta: number, entities: Set<number>): void {
-        const boundX = this.world.gl.canvas.width;
-        const boundY = this.world.gl.canvas.height;
+    public update(entities: Set<number>): void {
+        const boundX = this.world.engine.gl.canvas.width;
+        const boundY = this.world.engine.gl.canvas.height;
+        const delta = this.world.engine.delta;
 
         entities.forEach((id) => {
             const entity = this.world.getComponents(id)!;
@@ -67,30 +72,23 @@ export class RectangleMover extends System {
     }
 }
 
-export class RectangleRenderer extends System {
+class RectangleRenderer extends System {
     public componentsRequired: Set<Function> = new Set<Function>([Translation, Dimensionable, Rectangle]);
-    private shaderResolutionLocation: WebGLUniformLocation;
-    private shaderColorLocation: WebGLUniformLocation;
 
-    constructor(
-        public readonly gl: WebGL2RenderingContext,
-        public readonly shader: Shader,
-    ) {
-        super();
+    public update(entities: Set<number>): void {
+        const gl = this.world.engine.gl;
+        const shader = this.world.engine.getShader("rect");
+        const shaderResolutionLocation = gl.getUniformLocation(shader!.program, "u_resolution")!;
+        const shaderColorLocation = gl.getUniformLocation(shader!.program, "u_color")!;
 
-        this.shaderResolutionLocation = gl.getUniformLocation(shader.program, "u_resolution")!;
-        this.shaderColorLocation = gl.getUniformLocation(shader.program, "u_color")!;
-    }
-
-    public update(delta: number, entities: Set<number>): void {
         // Resize and clear the canvas.
-        this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
-        this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
         // Switch shader.
-        this.gl.useProgram(this.shader.program);
-        this.gl.uniform2f(this.shaderResolutionLocation, this.gl.canvas.width, this.gl.canvas.height);
+        gl.useProgram(shader!.program);
+        gl.uniform2f(shaderResolutionLocation, gl.canvas.width, gl.canvas.height);
 
         // Loop through all entities.
         entities.forEach((id) => {
@@ -100,26 +98,26 @@ export class RectangleRenderer extends System {
             const rectangle = entity.get(Rectangle);
 
             // Update instance uniforms
-            this.gl.uniform4f(this.shaderColorLocation, rectangle.color[0], rectangle.color[1], rectangle.color[2], rectangle.color[3]);
+            gl.uniform4f(shaderColorLocation, rectangle.color[0], rectangle.color[1], rectangle.color[2], rectangle.color[3]);
 
             // Update buffer
             const x1 = translation.value[0];
             const x2 = x1 + dimensionable.width;
             const y1 = translation.value[1];
             const y2 = y1 + dimensionable.height;
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, rectangle.buffer);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
+            gl.bindBuffer(gl.ARRAY_BUFFER, rectangle.buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
                 x1, y1,
                 x2, y1,
                 x1, y2,
                 x1, y2,
                 x2, y1,
                 x2, y2,
-            ]), this.gl.STATIC_DRAW);
+            ]), gl.STATIC_DRAW);
 
             // Render element
-            this.gl.bindVertexArray(rectangle.vao);
-            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+            gl.bindVertexArray(rectangle.vao);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
         });
     }
 }
@@ -136,7 +134,12 @@ function randomSign(): number {
     return (Math.random() >= 0.5 ? 1 : -1);
 }
 
-export function createRectangle(gl: WebGL2RenderingContext, rectShaderPositionLocation: number) {
+function createRectangle(engine: Engine) {
+    const gl = engine.gl;
+    const shader = engine.getShader("rect");
+    const shaderPositionLocation = gl.getAttribLocation(shader!.program, "a_position");
+
+    // Create all components.
     const translation = new Translation([
         randomInt(gl.canvas.width),
         randomInt(gl.canvas.height),
@@ -160,12 +163,29 @@ export function createRectangle(gl: WebGL2RenderingContext, rectShaderPositionLo
         gl.createVertexArray()!,
     );
 
+    // TODO: this should probably be handled by a system?
     gl.bindBuffer(gl.ARRAY_BUFFER, renderable.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), gl.STATIC_DRAW);
-
     gl.bindVertexArray(renderable.vao);
-    gl.enableVertexAttribArray(rectShaderPositionLocation);
-    gl.vertexAttribPointer(rectShaderPositionLocation, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(shaderPositionLocation);
+    gl.vertexAttribPointer(shaderPositionLocation, 2, gl.FLOAT, false, 0, 0);
 
     return [translation, dimensionable, velocity, renderable];
+}
+
+export default function setup(engine: Engine, world: World) {
+    // Create shader and add the "a_position" attribute to it.
+    engine.setShader("rect", new Shader(engine.gl, __SIMPLE_VS, __SIMPLE_FS));
+
+    // Create systems.
+    world.addSystem(new RectangleMover());
+    world.addSystem(new RectangleRenderer());
+
+    // Create entities and components.
+    for (let i = 0; i < 50; i++) {
+        const entity = world.addEntity();
+        createRectangle(engine).forEach((component) => {
+            world.addComponent(entity, component);
+        });
+    }
 }

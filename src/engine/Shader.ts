@@ -16,19 +16,20 @@ export default class Shader {
         gl.attachShader(program, fragShader!);
         gl.linkProgram(program);
 
+        // Once we link shaders, we don't need them anymore.
+        gl.deleteShader(vertShader);
+        gl.deleteShader(fragShader);
+
         if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
             gameError(`Unable to initialize shader: ${gl.getProgramInfoLog(program)}`);
             gl.deleteProgram(program);
             return;
         }
 
-        // In the end we use twgl.js to generate info about the shader automatically.
         this.program = program;
     }
 
-    // TODO: auto detection of shader params
-
-    public static load(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
+    static load(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
         const shader = gl.createShader(type)!;
         gl.shaderSource(shader, source);
         gl.compileShader(shader);
@@ -40,5 +41,9 @@ export default class Shader {
         }
 
         return shader;
+    }
+
+    public clear(gl: WebGL2RenderingContext) {
+        gl.deleteProgram(this.program);
     }
 }
